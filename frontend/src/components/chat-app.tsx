@@ -225,9 +225,17 @@ function Chat({ profile, onSignOut, mode, onToggleTheme }: ChatProps) {
     await pinThread(phone, t.thread_id, !t.pinned);
     refreshThreads();
   };
+  const [threadError, setThreadError] = useState<string | null>(null);
   const onDeleteThread = async (t: Thread) => {
-    await deleteThread(phone, t.thread_id);
+    // Gone at once; a failure brings it back with a message.
+    setThreadError(null);
+    setThreads((prev) => prev.filter((x) => x.thread_id !== t.thread_id));
     if (t.thread_id === threadId) setThreadId(null);
+    try {
+      await deleteThread(phone, t.thread_id);
+    } catch {
+      setThreadError(`“${t.title ?? "নতুন কথোপকথন"}” মুছতে পারিনি। আবার চেষ্টা করুন।`);
+    }
     refreshThreads();
   };
 
@@ -353,6 +361,11 @@ function Chat({ profile, onSignOut, mode, onToggleTheme }: ChatProps) {
           <PhotoFolder images={images} onOpenThread={openThread} />
           <div className="sidebar-label">কথোপকথন</div>
           <nav className="thread-list" aria-label="কথোপকথন">
+            {threadError && (
+              <p className="thread-error" role="alert">
+                {threadError}
+              </p>
+            )}
             {threads.length === 0 && <p className="thread-empty">আপনার কথোপকথনগুলো এখানে দেখা যাবে।</p>}
             {threads.map((t) => (
               <ThreadItem
@@ -629,29 +642,39 @@ function ThreadItem({
   const [confirming, setConfirming] = useState(false);
   const deleteLabel = confirming ? "মুছে ফেলতে আবার চাপুন" : "কথোপকথন মুছুন";
   return (
-    <div className="thread-row" aria-current={current} onMouseLeave={() => setConfirming(false)}>
+    <div className="thread-row" aria-current={current} data-confirming={confirming || undefined}>
       <button type="button" className="thread-item" onClick={onOpen}>
         {thread.pinned ? <Pin size={14} /> : <MessageSquare size={14} />}
         <span>{thread.title ?? "নতুন কথোপকথন"}</span>
       </button>
+      {!confirming && (
+        <button
+          type="button"
+          className="icon-btn thread-action"
+          onClick={onPin}
+          aria-label={thread.pinned ? "পিন সরান" : "পিন করুন"}
+          title={thread.pinned ? "পিন সরান" : "পিন করুন"}
+        >
+          {thread.pinned ? <PinOff size={14} /> : <Pin size={14} />}
+        </button>
+      )}
+      {confirming && (
+        <button type="button" className="thread-cancel" onClick={() => setConfirming(false)}>
+          না
+        </button>
+      )}
       <button
         type="button"
-        className="icon-btn thread-action"
-        onClick={onPin}
-        aria-label={thread.pinned ? "পিন সরান" : "পিন করুন"}
-        title={thread.pinned ? "পিন সরান" : "পিন করুন"}
-      >
-        {thread.pinned ? <PinOff size={14} /> : <Pin size={14} />}
-      </button>
-      <button
-        type="button"
-        className={confirming ? "icon-btn thread-action thread-delete-armed" : "icon-btn thread-action"}
+        className={confirming ? "thread-delete-armed" : "icon-btn thread-action"}
         onClick={() => (confirming ? onDelete() : setConfirming(true))}
-        onBlur={() => setConfirming(false)}
+        onBlur={(e) => {
+          // Moving on to "না" is not leaving: that button has to stay to be pressed.
+          if (!e.relatedTarget?.closest?.(".thread-row")) setConfirming(false);
+        }}
         aria-label={deleteLabel}
         title={deleteLabel}
       >
-        <Trash2 size={14} />
+        {confirming ? "মুছবেন?" : <Trash2 size={14} />}
       </button>
     </div>
   );

@@ -486,7 +486,33 @@ body {
   }
 }
 
+.thread-delete-armed,
+.thread-cancel {
+  flex: none;
+  padding: 3px 8px;
+  border: 0;
+  border-radius: 6px;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
 .thread-delete-armed {
+  background: var(--danger, #dc2626);
+  color: #fff;
+}
+
+.thread-cancel {
+  background: transparent;
+  color: var(--muted);
+}
+
+.thread-error {
+  margin: 0 0 6px;
+  padding: 6px 8px;
+  font-size: 12px;
   color: var(--danger, #dc2626);
 }
 
