@@ -585,6 +585,8 @@ function Timeline({
           })}
         </ol>
 
+        {!!crop.measurements?.length && <LesionTrend measurements={crop.measurements} />}
+
         {crop.photos.length > 0 && (
           <section className="cp-photos">
             <h3>ছবিতে অগ্রগতি</h3>
@@ -639,6 +641,32 @@ function Timeline({
         </div>
       )}
     </aside>
+  );
+}
+
+/** The measured share of the leaf affected, first to latest, with what each change means. */
+function LesionTrend({ measurements }: { measurements: NonNullable<CropCase["measurements"]> }) {
+  const latest = measurements[measurements.length - 1];
+  return (
+    <section className="cp-lesions">
+      <h3>ছবিতে মাপা পাতার দাগ</h3>
+      <p className="cp-lesion-values">
+        {measurements.slice(-4).map((m, i) => (
+          <span key={m.id}>
+            {i > 0 && <span aria-hidden="true"> → </span>}
+            <strong>{bnDigits(m.lesion_pct)}%</strong>
+          </span>
+        ))}
+      </p>
+      {latest.change ? (
+        <span className={`status-pill outcome-${latest.change}`}>
+          {latest.change === "worse" ? <TrendingDown size={13} /> : null}
+          {latest.change === "worse" ? "দাগ বেড়েছে" : latest.change === "better" ? "মাপে দাগ কমেছে" : "তেমন বদল নেই"}
+        </span>
+      ) : (
+        <span className="cp-lesion-hint">প্রথম মাপ: পরের ছবিতে একই পাতা দিন</span>
+      )}
+    </section>
   );
 }
 

@@ -51,6 +51,9 @@ export type CropCase = {
   warning_signs: string[];
   steps: PlanStep[];
   photos: { url: string; caption: string; at: string }[];
+  /** Leaf damage measured from photos, oldest first; change is against the one before (null on the first).
+   * Absent on cases saved in older chat messages. */
+  measurements?: { id: string; url: string; lesion_pct: number; at: string; step_id: string | null; change: Outcome | null }[];
   progress: { total: number; done: number; attention: number };
   /** Who did what, newest last (the last 20). */
   activity: { at: string; actor: "agent" | "farmer"; text: string }[];
