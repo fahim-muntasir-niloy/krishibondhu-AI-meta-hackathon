@@ -1,0 +1,11 @@
+.env
+.data
+.media
+.langgraph_api
+.venv
+docs
+video prompt.md
+NC_agent
+frontend/node_modules
+frontend/dist
+frontend/.next
