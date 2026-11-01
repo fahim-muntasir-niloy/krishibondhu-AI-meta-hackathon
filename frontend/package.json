@@ -13,9 +13,6 @@
     "generate:prompt": "openui generate src/lib/library.ts --out ../src/meta_hackathon/prompts/openui_prompt.md --no-interactive && rm ../src/meta_hackathon/prompts/openui_prompt.spec.json"
   },
   "dependencies": {
-    "@langchain/core": "^1.2.5",
-    "@langchain/langgraph-sdk": "^1.12.8",
-    "@langchain/react": "^1.2.8",
     "@openuidev/lang-core": "1.0.1",
     "@openuidev/react-headless": "0.18.1",
     "@openuidev/react-lang": "1.0.1",

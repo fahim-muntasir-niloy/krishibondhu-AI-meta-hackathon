@@ -1,4 +1,5 @@
 from langchain.tools import tool
+from langsmith.wrappers import wrap_openai
 from openai import AsyncOpenAI, OpenAIError
 
 from meta_hackathon.config import settings
@@ -6,7 +7,7 @@ from meta_hackathon.config import settings
 # Muse's built-in `web_search` only runs through the Responses API, and there it
 # interleaves progress text ("খুঁজছি…") with the answer. Calling it from inside a
 # tool keeps the agent's own reply clean openui-lang and lets the UI narrate the step.
-_client = AsyncOpenAI(base_url=settings.META_BASE_URL, api_key=settings.META_API_KEY)
+_client = wrap_openai(AsyncOpenAI(base_url=settings.META_BASE_URL, api_key=settings.META_API_KEY), chat_name="Muse web search")
 
 _INSTRUCTIONS = (
     "You are a research helper for an agriculture assistant in Bangladesh. Search the web and "

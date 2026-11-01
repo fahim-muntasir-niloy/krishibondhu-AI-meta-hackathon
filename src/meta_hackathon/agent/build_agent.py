@@ -15,8 +15,7 @@ def build_agent(*, reply_format: ReplyFormat = "text", checkpointer: Checkpointe
     """`text` for plain chat channels (WhatsApp, /v1/chat); `openui` for the web UI,
     where replies are openui-lang rendered by the OpenUI Renderer.
 
-    Under the Agent Server, the server passes in its checkpointer and store
-    (Postgres, persistence.py); /v1/chat (main.py) passes its own."""
+    main.py passes in the Postgres checkpointer and store (persistence.py)."""
     return create_agent(
         model=llm,
         tools=ALL_TOOLS,
@@ -25,6 +24,8 @@ def build_agent(*, reply_format: ReplyFormat = "text", checkpointer: Checkpointe
             content_filter_guard(reply_format),
             # One search covers every subject of a reply; a second is for a retry with other words.
             ToolCallLimitMiddleware(tool_name="search_images", run_limit=2),
+            # Slow and billed per image; a reply never needs more than a mixing card and a gear card.
+            ToolCallLimitMiddleware(tool_name="make_picture_card", run_limit=2),
         ],
         context_schema=UserContext,
         checkpointer=checkpointer,

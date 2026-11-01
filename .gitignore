@@ -20,3 +20,6 @@ wheels/
 # SQLite side files of agri.db
 *.db-shm
 *.db-wal
+
+# Vercel CLI project link
+.vercel

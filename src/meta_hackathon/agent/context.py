@@ -18,9 +18,4 @@ class UserContext:
 
 
 def phone_number(runtime: ToolRuntime) -> str | None:
-    """Caller's phone: from the FastAPI context, or the Agent Server auth identity."""
-    if runtime.context and runtime.context.phone_number:
-        return runtime.context.phone_number
-    if runtime.server_info and runtime.server_info.user:
-        return runtime.server_info.user.identity
-    return None
+    return runtime.context.phone_number if runtime.context else None

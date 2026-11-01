@@ -1,4 +1,12 @@
-# Backend: the LangGraph Agent Server (agent + FastAPI routes from langgraph.json).
+# The whole app: FastAPI serving the API and the built frontend (main.py).
+FROM node:22-alpine AS frontend
+WORKDIR /frontend
+COPY frontend/package.json frontend/package-lock.json ./
+RUN npm ci
+COPY frontend ./
+ENV NEXT_TELEMETRY_DISABLED=1
+RUN npm run build
+
 FROM ghcr.io/astral-sh/uv:python3.14-bookworm-slim
 
 # Pillow's bundled raqm loads fribidi at runtime; without it Bangla labels on
@@ -13,13 +21,12 @@ ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy PATH="/app/.venv/bin:$PATH"
 COPY pyproject.toml uv.lock README.md ./
 RUN --mount=type=cache,target=/root/.cache/uv uv sync --frozen --no-dev --no-install-project
 
-COPY langgraph.json ./
+COPY main.py ./
 COPY src ./src
 RUN --mount=type=cache,target=/root/.cache/uv uv sync --frozen --no-dev
 
+COPY --from=frontend /frontend/dist ./frontend/dist
+
 EXPOSE 2024
-# langgraph.json names ".env"; compose passes the settings as environment
-# variables and an empty file keeps the CLI happy.
-RUN touch .env
 # Apply the Postgres schema first (idempotent, a second or two), then serve.
-CMD ["sh", "-c", "krishi-db migrate && exec langgraph dev --host 0.0.0.0 --port 2024 --no-browser --no-reload"]
+CMD ["sh", "-c", "krishi-db migrate && exec python main.py"]

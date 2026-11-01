@@ -585,6 +585,8 @@ function Timeline({
           })}
         </ol>
 
+        {!!crop.measurements?.length && <MeasuredTrend measurements={crop.measurements} />}
+
         {crop.photos.length > 0 && (
           <section className="cp-photos">
             <h3>ছবিতে অগ্রগতি</h3>
@@ -639,6 +641,46 @@ function Timeline({
         </div>
       )}
     </aside>
+  );
+}
+
+const MEASURE_WORDS = {
+  lesion: { title: "ছবিতে মাপা পাতার দাগ", worse: "দাগ বেড়েছে", better: "মাপে দাগ কমেছে", first: "প্রথম মাপ: পরের ছবিতে একই পাতা দিন" },
+  pests: { title: "ছবিতে গোনা পোকা", worse: "পোকা বেড়েছে", better: "ছবিতে পোকা কমেছে", first: "প্রথম গণনা: পরের ছবিও একই দূরত্ব থেকে দিন" },
+};
+
+/** What was measured from the photos, first to latest, and what the latest change means. */
+function MeasuredTrend({ measurements }: { measurements: NonNullable<CropCase["measurements"]> }) {
+  return (
+    <>
+      {(["pests", "lesion"] as const).map((metric) => {
+        const series = measurements.filter((m) => (m.metric ?? "lesion") === metric);
+        const latest = series[series.length - 1];
+        if (!latest) return null;
+        const words = MEASURE_WORDS[metric];
+        return (
+          <section className="cp-lesions" key={metric}>
+            <h3>{metric === "pests" && latest.label ? `ছবিতে গোনা ${latest.label}` : words.title}</h3>
+            <p className="cp-lesion-values">
+              {series.slice(-4).map((m, i) => (
+                <span key={m.id}>
+                  {i > 0 && <span aria-hidden="true"> → </span>}
+                  <strong>{bnDigits(m.value)}{metric === "lesion" ? "%" : "টি"}</strong>
+                </span>
+              ))}
+            </p>
+            {latest.change ? (
+              <span className={`status-pill outcome-${latest.change}`}>
+                {latest.change === "worse" ? <TrendingDown size={13} /> : null}
+                {latest.change === "worse" ? words.worse : latest.change === "better" ? words.better : "তেমন বদল নেই"}
+              </span>
+            ) : (
+              <span className="cp-lesion-hint">{words.first}</span>
+            )}
+          </section>
+        );
+      })}
+    </>
   );
 }
 

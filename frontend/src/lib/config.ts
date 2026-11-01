@@ -1,13 +1,9 @@
-const configured = process.env.NEXT_PUBLIC_LANGGRAPH_API_URL ?? "http://localhost:2024";
+/** The API. Same origin as the page wherever FastAPI serves the built frontend (main.py);
+ * `next dev` runs apart from it, so there it is the API on :2024. */
+const configured = process.env.NEXT_PUBLIC_API_URL ?? (process.env.NODE_ENV === "development" ? "http://localhost:2024" : "");
 
-/** LangGraph Agent Server (`langgraph dev` in the repo root). May be a path such
- * as "/api" when a reverse proxy serves both apps from one origin (docker
- * compose); it is made absolute in the browser for the SDK and the voice socket. */
-export const API_URL =
-  configured.startsWith("/") && typeof window !== "undefined" ? `${window.location.origin}${configured}` : configured;
-
-/** Graph id from langgraph.json. */
-export const ASSISTANT_ID = "krishi_advisor";
+/** Absolute in the browser, for the voice socket. */
+export const API_URL = !configured && typeof window !== "undefined" ? window.location.origin : configured;
 
 export const PHONE_HEADER = "X-Phone-Number";
 

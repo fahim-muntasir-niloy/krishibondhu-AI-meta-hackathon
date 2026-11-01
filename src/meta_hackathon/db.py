@@ -15,8 +15,7 @@ farmers' tables compare each row's phone with the `app.phone` setting:
 The schema is in sql/schema.sql; `krishi-db migrate` applies it, as the login
 role (dbcli.py).
 
-Calls block, so async code runs them with asyncio.to_thread: the Agent Server
-rejects blocking calls on its event loop.
+Calls block, so async code runs them with asyncio.to_thread.
 """
 
 import atexit

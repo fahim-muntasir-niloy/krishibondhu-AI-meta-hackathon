@@ -17,9 +17,7 @@ _PROFILE_FIELDS = ("name", "area", "district", "division")
 
 
 def _phone(request: ModelRequest) -> str | None:
-    # Same precedence as `phone_number()`: FastAPI context, else the Agent Server identity.
-    server_user = request.runtime.server_info and request.runtime.server_info.user
-    return getattr(request.runtime.context, "phone_number", None) or (server_user.identity if server_user else None)
+    return getattr(request.runtime.context, "phone_number", None)
 
 
 def _profile(request: ModelRequest) -> str:
@@ -94,7 +92,7 @@ def system_prompt(reply_format: ReplyFormat):
     async def prompt(request: ModelRequest) -> str:
         ctx = request.runtime.context
         phone = _phone(request)
-        # The database calls block, and the Agent Server rejects blocking calls on its event loop.
+        # The database calls block; keep them off the event loop that serves every farmer.
         records, memories = await asyncio.gather(
             asyncio.to_thread(
                 _records, phone, getattr(ctx, "case_id", None), {f: getattr(ctx, f, None) for f in _PROFILE_FIELDS}
