@@ -24,9 +24,9 @@ from meta_hackathon.agent.context import phone_number
 from meta_hackathon.config import settings
 from meta_hackathon.gallery import record_image, save_image
 from meta_hackathon.utils.bangla import bn_digits
+from meta_hackathon.utils.fonts import bangla_font
 
 _client = AsyncOpenAI(base_url=settings.META_BASE_URL, api_key=settings.META_API_KEY, timeout=120)
-_FONT = Path(__file__).parent.parent / "assets" / "fonts" / "HindSiliguri-SemiBold.ttf"
 
 Scene = Literal["mix_spray", "protective_gear", "custom"]
 
@@ -103,8 +103,8 @@ def _compose(data: bytes, title: str, captions: list[str]) -> bytes:
     art = art.resize((_WIDTH, round(art.height * _WIDTH / art.width)), Image.Resampling.LANCZOS)
 
     measure = ImageDraw.Draw(art)
-    title_font = ImageFont.truetype(str(_FONT), 44)
-    font = ImageFont.truetype(str(_FONT), 32 if len(captions) < 4 else 27)
+    title_font = bangla_font(44)
+    font = bangla_font(32 if len(captions) < 4 else 27)
     badge = font.size + 16
     column = _WIDTH // len(captions)
     numbered = len(captions) > 1

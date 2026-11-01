@@ -15,7 +15,6 @@ quotes are ones this tool measured.
 import asyncio
 import base64
 import io
-from pathlib import Path
 from typing import Literal
 
 import httpx
@@ -28,7 +27,7 @@ from meta_sam_parser import (
     parse_responses_stream,
 )
 from openai import AsyncOpenAI, OpenAIError
-from PIL import Image, ImageChops, ImageDraw, ImageFilter, ImageFont
+from PIL import Image, ImageChops, ImageDraw, ImageFilter
 from pydantic import BaseModel, Field
 
 from meta_hackathon.agent.context import phone_number
@@ -36,9 +35,9 @@ from meta_hackathon.config import settings
 from meta_hackathon.gallery import record_image, save_image
 from meta_hackathon.lesions import Instance, Measurement, measure, pixels, seeds, union
 from meta_hackathon.utils.bangla import bn_digits
+from meta_hackathon.utils.fonts import bangla_font
 
 _client = AsyncOpenAI(base_url=settings.META_BASE_URL, api_key=settings.META_API_KEY)
-_FONT = Path(__file__).parent.parent / "assets" / "fonts" / "HindSiliguri-SemiBold.ttf"
 
 # Distinct on green fields; white text stays readable on each.
 _COLORS = ["#e11d48", "#2563eb", "#d97706", "#7c3aed"]
@@ -143,7 +142,7 @@ def _draw(img: Image.Image, found: list[tuple[Target, str, list[Instance]]], mea
     """The photo with its masks shaded, the labels and the measured share, as a JPEG."""
     scale = max(img.size) / 1000
     thickness = max(1, round(1.5 * scale))
-    font = ImageFont.truetype(str(_FONT), max(16, round(26 * scale)))
+    font = bangla_font(max(16, round(26 * scale)))
     pad = round(6 * scale) + 2
 
     if measured:
