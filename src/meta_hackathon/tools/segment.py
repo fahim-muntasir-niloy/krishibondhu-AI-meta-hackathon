@@ -1,5 +1,5 @@
-"""SAM 3.1 on the farmer's photo: mark what the agent recognised, and measure how
-much of the leaf is diseased.
+"""SAM 3.1 on the farmer's photo: mark what the agent recognised, and measure the
+problem: how much of the leaf is diseased, or how many insects there are.
 
 The main model looks at the photo and names what it sees; this tool asks SAM for
 that name. SAM responds to what things look like, not to diagnoses: "brown
@@ -145,13 +145,15 @@ def _draw(img: Image.Image, found: list[tuple[Target, str, list[Instance]]], mea
     font = bangla_font(max(16, round(26 * scale)))
     pad = round(6 * scale) + 2
 
+    # Nothing to show for a leaf with no lesions, only a busy outline around the plant.
+    if measured and not pixels(measured.lesions):
+        measured = None
     if measured:
         outline = ImageChops.subtract(measured.leaf.filter(ImageFilter.MaxFilter(2 * thickness + 1)), measured.leaf)
         img = img.copy()
         img.paste(_LEAF_OUTLINE, (0, 0), outline)
-        if pixels(measured.lesions):
-            color = next((c for t, c, _ in found if t.kind == "disease"), _COLORS[0])
-            img = _tint(img, measured.lesions, color, thickness)
+        color = next((c for t, c, _ in found if t.kind == "disease"), _COLORS[0])
+        img = _tint(img, measured.lesions, color, thickness)
     for target, color, instances in found:
         img = _tint(img, union(img.size, instances), color, thickness)
 
@@ -184,9 +186,9 @@ async def segment_image(targets: list[Target], photo: int = 1, *, runtime: ToolR
     """Mark what you recognised in the farmer's latest photo (SAM 3.1), and measure how
     much of the leaf is diseased. Look at the photo first, name what you see, then call this.
 
-    Returns the URL of the photo with the marks. With a "disease" target it also returns
-    `measurement`: lesion_pct (lesion area as a percentage of the leaf) and measurement_id,
-    or `measurement_unavailable` saying why not. Quote only this number, never your own
+    Returns the URL of the photo with the marks, and usually `measurement`: its measurement_id
+    with lesion_pct (lesion area as a percentage of the leaf, for "disease" targets) and/or
+    pest_count (insects counted, for "pest" targets). Quote only these numbers, never your own
     estimate, and pass measurement_id to start_crop_case or update_crop_case.
 
     Args:
@@ -244,6 +246,12 @@ async def segment_image(targets: list[Target], photo: int = 1, *, runtime: ToolR
         ],
         "not_found": [t.label for t, r in zip(targets, results) if not r[0]],
     }
+    wanted = [t.label for t in targets if t.kind == "pest" and t.label in out["not_found"]]
+    if wanted:
+        out["pests_not_counted"] = (
+            f"{', '.join(wanted)} not found here, which does not mean they are gone: small insects do not show from a "
+            "distance. Ask for a close-up of the underside of an affected leaf before saying they have gone."
+        )
     if not found and not measured:
         if measuring:
             out["measurement_unavailable"] = "No leaf could be found. Ask for a closer photo of one affected leaf, in daylight."
@@ -254,24 +262,32 @@ async def segment_image(targets: list[Target], photo: int = 1, *, runtime: ToolR
     except OSError as e:
         return {"error": f"Segmentation failed: {e}"}
     out["annotated_image_url"] = url
-    record = None
+    # Insects SAM did not find are left out, not counted as zero: too far away looks the same as gone.
+    pests = [(t, inst) for t, _, inst in found if t.kind == "pest"]
+    record: dict = {}
+    if pests:
+        target, _ = max(pests, key=lambda p: len(p[1]))
+        record |= {"pest_count": sum(len(inst) for _, inst in pests), "pest_label": target.label}
     if measured:
-        record = {
+        record |= {
             "lesion_pct": measured.lesion_pct,
             "lesion_px": measured.lesion_px,
             "leaf_px": measured.leaf_px,
             "leaf_confidence": measured.leaf_confidence,
         }
-        out["measurement"] = {"measurement_id": name.removesuffix(".jpg"), "lesion_pct": measured.lesion_pct}
-        if not measured.lesion_px:
-            out["measurement"]["note"] = (
-                "SAM marked no lesions. That can be a miss, not proof of health: check the photo with your own eyes."
-            )
     elif measuring:
         out["measurement_unavailable"] = "No leaf could be found. Ask for a closer photo of one affected leaf, in daylight."
+    if record:
+        shown = {k: record[k] for k in ("lesion_pct", "pest_count", "pest_label") if k in record}
+        out["measurement"] = {"measurement_id": name.removesuffix(".jpg"), **shown}
+        if measured and not measured.lesion_px:
+            out["measurement"]["note"] = (
+                "SAM marked no spots or lesions, so lesion_pct 0 says nothing about insects, curling or other damage, "
+                "and it can be a miss. Do not tell the farmer 0%."
+            )
     # Filed in the farmer's photo folder in the web UI.
     if phone := phone_number(runtime):
         thread_id = (runtime.config or {}).get("configurable", {}).get("thread_id")
         labels = [{"label": f["label"], "count": f["count"]} for f in out["found"]]
-        await asyncio.to_thread(record_image, phone, name, url=url, thread_id=thread_id, labels=labels, measurement=record)
+        await asyncio.to_thread(record_image, phone, name, url=url, thread_id=thread_id, labels=labels, measurement=record or None)
     return out

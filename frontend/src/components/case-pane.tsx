@@ -585,7 +585,7 @@ function Timeline({
           })}
         </ol>
 
-        {!!crop.measurements?.length && <LesionTrend measurements={crop.measurements} />}
+        {!!crop.measurements?.length && <MeasuredTrend measurements={crop.measurements} />}
 
         {crop.photos.length > 0 && (
           <section className="cp-photos">
@@ -644,29 +644,43 @@ function Timeline({
   );
 }
 
-/** The measured share of the leaf affected, first to latest, with what each change means. */
-function LesionTrend({ measurements }: { measurements: NonNullable<CropCase["measurements"]> }) {
-  const latest = measurements[measurements.length - 1];
+const MEASURE_WORDS = {
+  lesion: { title: "ছবিতে মাপা পাতার দাগ", worse: "দাগ বেড়েছে", better: "মাপে দাগ কমেছে", first: "প্রথম মাপ: পরের ছবিতে একই পাতা দিন" },
+  pests: { title: "ছবিতে গোনা পোকা", worse: "পোকা বেড়েছে", better: "ছবিতে পোকা কমেছে", first: "প্রথম গণনা: পরের ছবিও একই দূরত্ব থেকে দিন" },
+};
+
+/** What was measured from the photos, first to latest, and what the latest change means. */
+function MeasuredTrend({ measurements }: { measurements: NonNullable<CropCase["measurements"]> }) {
   return (
-    <section className="cp-lesions">
-      <h3>ছবিতে মাপা পাতার দাগ</h3>
-      <p className="cp-lesion-values">
-        {measurements.slice(-4).map((m, i) => (
-          <span key={m.id}>
-            {i > 0 && <span aria-hidden="true"> → </span>}
-            <strong>{bnDigits(m.lesion_pct)}%</strong>
-          </span>
-        ))}
-      </p>
-      {latest.change ? (
-        <span className={`status-pill outcome-${latest.change}`}>
-          {latest.change === "worse" ? <TrendingDown size={13} /> : null}
-          {latest.change === "worse" ? "দাগ বেড়েছে" : latest.change === "better" ? "মাপে দাগ কমেছে" : "তেমন বদল নেই"}
-        </span>
-      ) : (
-        <span className="cp-lesion-hint">প্রথম মাপ: পরের ছবিতে একই পাতা দিন</span>
-      )}
-    </section>
+    <>
+      {(["pests", "lesion"] as const).map((metric) => {
+        const series = measurements.filter((m) => (m.metric ?? "lesion") === metric);
+        const latest = series[series.length - 1];
+        if (!latest) return null;
+        const words = MEASURE_WORDS[metric];
+        return (
+          <section className="cp-lesions" key={metric}>
+            <h3>{metric === "pests" && latest.label ? `ছবিতে গোনা ${latest.label}` : words.title}</h3>
+            <p className="cp-lesion-values">
+              {series.slice(-4).map((m, i) => (
+                <span key={m.id}>
+                  {i > 0 && <span aria-hidden="true"> → </span>}
+                  <strong>{bnDigits(m.value)}{metric === "lesion" ? "%" : "টি"}</strong>
+                </span>
+              ))}
+            </p>
+            {latest.change ? (
+              <span className={`status-pill outcome-${latest.change}`}>
+                {latest.change === "worse" ? <TrendingDown size={13} /> : null}
+                {latest.change === "worse" ? words.worse : latest.change === "better" ? words.better : "তেমন বদল নেই"}
+              </span>
+            ) : (
+              <span className="cp-lesion-hint">{words.first}</span>
+            )}
+          </section>
+        );
+      })}
+    </>
   );
 }
 

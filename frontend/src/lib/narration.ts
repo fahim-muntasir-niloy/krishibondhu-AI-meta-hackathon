@@ -114,11 +114,18 @@ const narrators: Record<string, Narrator> = {
     if (status !== "done") return { icon: ScanSearch, title: `ছবিতে ${labels.join(", ") || "সমস্যা"} চিহ্নিত করছি` };
     const r = (result ?? {}) as Args;
     const found = asArray(r.found);
-    const pct = (r.measurement as Args | undefined)?.lesion_pct;
+    const measured = (r.measurement ?? {}) as Args;
+    const pct = measured.lesion_pct;
+    const pests = measured.pest_count;
     return found.length
       ? {
           icon: ScanSearch,
-          title: typeof pct === "number" ? `পাতার ${bnDigits(pct)}% আক্রান্ত, মেপে দেখা হয়েছে` : "ছবিতে চিহ্নিত করা হয়েছে",
+          title:
+            typeof pests === "number"
+              ? `ছবিতে ${bnDigits(pests)}টি পোকা গোনা হয়েছে`
+              : typeof pct === "number" && pct > 0
+                ? `পাতার ${bnDigits(pct)}% আক্রান্ত, মেপে দেখা হয়েছে`
+                : "ছবিতে চিহ্নিত করা হয়েছে",
           detail: found.map((f) => `${str(f.label)}: ${bnDigits(Number(f.count))}টি`).join(" · "),
         }
       : { icon: ScanSearch, title: "ছবিতে চিহ্নিত করার মতো কিছু পাওয়া যায়নি" };

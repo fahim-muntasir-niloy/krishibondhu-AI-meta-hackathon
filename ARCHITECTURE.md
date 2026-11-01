@@ -91,7 +91,7 @@ flowchart TB
         web["search_internet<br/>live web search + cited sources"]
         weather["get_weather<br/>now · next 24 h · daily"]
         geo["geocode_location<br/>places in Bangladesh"]
-        seg["segment_image<br/>the model names what it sees, SAM marks it;<br/>measures lesion % of the leaf (lesions.py)"]
+        seg["segment_image<br/>the model names what it sees, SAM marks it;<br/>counts insects, measures lesion % of the leaf (lesions.py)"]
         card["make_picture_card<br/>drawn step cards, Bangla captions and doses rendered by us"]
         imgs["search_images<br/>reference photos with author & licence"]
         findP["find_registered_pesticides<br/>crop + pest → ingredients, brands, reg no, dose"]
@@ -214,7 +214,7 @@ sequenceDiagram
     F->>UI: sends a day-3 photo of the same leaf
     UI->>S: message + hidden {case_id, step_id}
     S->>M: next turn (the prompt now shows the farmer's changes)
-    M->>T: segment_image: leaf damage measured again
+    M->>T: segment_image: leaf damage or insects measured again
     M->>T: update_crop_case + measurement: compared with the last one
     T->>D: a clear rise: step needs attention, case escalated
     M->>T: find_officer_slots (district roster)
@@ -243,10 +243,12 @@ sequenceDiagram
     soil, what worked), in the LangGraph Postgres store under `("memories", phone)`.
 - **Photo evidence** (`tools/segment.py`, `lesions.py`): the main model names what it sees and SAM is asked
   for that name, then what it looks like, then generic words, since SAM finds appearances rather than
-  diagnoses. Separately, lesions from fixed queries are measured as a share of a leaf found with point
-  prompts, so photos stay comparable whatever the model calls the problem. Measurements are stored on
-  `images` and attached to a plan by id, so the agent cannot invent one. A rise of at least 3 points and 25%
-  marks the check worse and escalates the plan; a fall changes nothing until the agent has looked at the photo.
+  diagnoses. Each problem is measured in its own way: insects by count, disease by lesions from fixed queries
+  as a share of a leaf found with point prompts, so photos stay comparable whatever the model calls the
+  problem. Measurements are stored on `images` and attached to a plan by id, so the agent cannot invent one.
+  Insects not found are left out rather than counted as zero, and a first lesion reading of zero is not kept.
+  A rise (at least 3 points and 25% for lesions, 10 insects and 50% for a count) marks the check worse and
+  escalates the plan; a fall changes nothing until the agent has looked at the photo.
 - **Plans** (`src/meta_hackathon/cases.py`): two kinds on one timeline of dated steps (actions, and checks
   where the farmer reports better / same / worse):
   - *treatment*: a diagnosed problem, from today to the last check;

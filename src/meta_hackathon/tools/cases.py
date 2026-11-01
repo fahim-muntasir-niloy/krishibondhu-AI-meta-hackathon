@@ -187,9 +187,9 @@ def update_crop_case(
     - add_steps / remove_step_ids: when the plan changes (e.g. a second spray, another check).
     - add_measurement_id: after segment_image on a follow-up photo, its measurement_id (this
       also files the photo; no add_photo needed). It is compared with the last measurement.
-      A clear rise marks measurement_step_id (the check step) worse and escalates the case by
-      itself, whatever the farmer reported. A fall changes nothing by itself: look at the
-      photo, and only then set the outcome. The result says what happened.
+      A clear rise (leaf damage or insect count) marks measurement_step_id (the check step) worse
+      and escalates the case by itself, whatever the farmer reported. A fall changes nothing by
+      itself: look at the photo, and only then set the outcome. The result says what happened.
     - add_photo: a follow-up photo with no measurement: file its annotated_image_url
       with a caption, so before and after can be compared.
     - stage: in_treatment, escalated (worse, or an officer is needed), resolved (recovered),

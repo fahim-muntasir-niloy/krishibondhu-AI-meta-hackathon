@@ -68,9 +68,10 @@ MAX_ACTIVITY = 40
 MAX_TEXT = 300
 MAX_TITLE = 120
 MAX_MEASUREMENTS = 12
-# The same leaf reframed read 13.9-16.4% where it should read 14.5%, so smaller changes are noise.
-LESION_MIN_POINTS = 3.0
-LESION_MIN_RELATIVE = 0.25
+# (smallest absolute change, smallest relative change) that counts as real. The same leaf reframed
+# read 13.9-16.4% where it should read 14.5%. An insect count barely moved with light (114 -> 112) but
+# follows the framing (half the leaf, 74), so it needs a bigger change.
+MEASURE_MIN_CHANGE = {"lesion": (3.0, 0.25), "pests": (10, 0.5)}
 AGENT, FARMER = "agent", "farmer"
 Actor = Literal["agent", "farmer"]
 
@@ -204,12 +205,18 @@ def _next_step_number(steps: list[dict]) -> int:
     return max(numbers, default=0) + 1
 
 
-def lesion_change(before: float, after: float) -> Outcome:
-    """What a change in the measured lesion share means, beyond measurement noise."""
+def measured_change(metric: str, before: float, after: float) -> Outcome:
+    """What a change in a measurement means, beyond measurement noise."""
     diff = after - before
-    if abs(diff) < LESION_MIN_POINTS or abs(diff) < before * LESION_MIN_RELATIVE:
+    least, relative = MEASURE_MIN_CHANGE[metric]
+    if abs(diff) < least or abs(diff) < before * relative:
         return "same"
     return "worse" if diff > 0 else "better"
+
+
+def _shown(metric: str, value: float, label: str = "") -> str:
+    """A measurement in Bangla: "১৪.৪%" or "জাব পোকা ১১৪টি"."""
+    return f"{bn_digits(value)}%" if metric == "lesion" else f"{label or 'পোকা'} {bn_digits(value)}টি"
 
 
 def progress(steps: list[dict]) -> dict:
@@ -237,9 +244,12 @@ def normalized(case: dict) -> dict:
         "plan_type": "treatment",
         "start_date": None,
         "anchor_label": "",
-        "measurements": [],
         **case,
         "steps": [{**_STEP_DEFAULTS, **step} for step in case["steps"]],
+        # Before insects were counted, a measurement held only lesion_pct.
+        "measurements": [
+            {"metric": "lesion", "value": m.get("lesion_pct"), "label": "", **m} for m in case.get("measurements", [])
+        ],
     }
 
 
@@ -287,10 +297,12 @@ def case_for_model(view: dict) -> str:
             line += f" -- source: {s['source']}"
         lines.append(line)
     if view["measurements"]:
-        lines.append(
-            "leaf damage measured from photos, oldest first: "
-            + ", ".join(f"{m['lesion_pct']}% ({m['change'] or 'first'}, {m['at'][:10]})" for m in view["measurements"])
-        )
+        for metric, title, unit in (("lesion", "leaf damage measured from photos", "%"), ("pests", "insects counted in photos", "")):
+            if series := [m for m in view["measurements"] if m["metric"] == metric]:
+                lines.append(
+                    f"{title}, oldest first: "
+                    + ", ".join(f"{m['value']}{unit} ({m['change'] or 'first'}, {m['at'][:10]})" for m in series)
+                )
     if view["photos"]:
         lines.append(f"{len(view['photos'])} photo(s) on file, latest: {view['photos'][-1]['caption'] or '(no caption)'}")
     if recent := view["activity"][-8:]:
@@ -368,45 +380,63 @@ def get_case(phone: str, case_id: str) -> dict | None:
 
 
 def _attach_measurement(conn: Connection, phone: str, case: dict, measurement_id: str, step_id: str | None) -> list[str]:
-    """File a measurement segment_image stored, compare it with the last one, and log it.
+    """File what segment_image measured on a photo, compare it with the last reading of
+    the same kind, and log it.
 
     A rise beyond noise is evidence enough to act on: the check is marked worse and the
     case escalates, whatever was reported, since a false alarm costs one phone call. A fall
-    changes nothing by itself, since a missed lesion or different light can look like
-    healing; the agent has to look at the photo and decide. Returns the activity lines."""
+    changes nothing by itself, since a missed lesion, different light or a wider photo can
+    look like healing; the agent has to look at the photo and decide. A first reading of
+    zero is not kept: there is nothing to compare it with, and it says nothing about a
+    problem this measure cannot see. Returns the activity lines."""
     name = f"{measurement_id}.jpg"
     row = conn.execute("SELECT measurement, url FROM images WHERE name = %s AND phone = %s", (name, phone)).fetchone()
     if row is None or row["measurement"] is None:
         raise CaseError(f"No measurement {measurement_id}. Use a measurement_id from segment_image.")
+    case["measurements"] = normalized(case)["measurements"]
     if any(m["id"] == measurement_id for m in case["measurements"]):
         return []
     step = None
     if step_id is not None and (step := next((s for s in case["steps"] if s["id"] == step_id), None)) is None:
         raise CaseError(f"No step {step_id} in this case.")
 
-    pct = row["measurement"]["lesion_pct"]
-    previous = case["measurements"][-1]["lesion_pct"] if case["measurements"] else None
-    change = None if previous is None else lesion_change(previous, pct)
+    record = row["measurement"]
     url = row["url"] or media_url(name)
-    case["measurements"] = [
-        *case["measurements"],
-        {"id": measurement_id, "url": url, "lesion_pct": pct, "at": _now(), "step_id": step_id, "change": change},
-    ][-MAX_MEASUREMENTS:]
-    shown = f"{bn_digits(pct)}%"
+    said: list[str] = []
+    captions: list[str] = []
+    rose = False
+    for metric, value, label in (
+        ("lesion", record.get("lesion_pct"), ""),
+        ("pests", record.get("pest_count"), record.get("pest_label", "")),
+    ):
+        if value is None:
+            continue
+        previous = next((m for m in reversed(case["measurements"]) if m["metric"] == metric), None)
+        if previous is None and not value:
+            continue
+        change = None if previous is None else measured_change(metric, previous["value"], value)
+        case["measurements"] = [
+            *case["measurements"],
+            {"id": measurement_id, "url": url, "metric": metric, "value": value, "label": label, "at": _now(), "step_id": step_id, "change": change},
+        ][-MAX_MEASUREMENTS:]
+        now = _shown(metric, value, label)
+        captions.append(f"পাতার {now} আক্রান্ত" if metric == "lesion" else now)
+        if previous is None:
+            said.append(f"প্রথম মাপ: {captions[-1]}")
+            continue
+        before = _shown(metric, previous["value"], previous["label"])
+        said.append(f"ছবিতে মাপা: {before} থেকে {now}")
+        if change == "worse":
+            rose = True
+            if step is not None:
+                step["outcome"], step["status"] = "worse", "attention"
+                step["note"] = f"ছবিতে মাপা {before} থেকে বেড়ে {now} হয়েছে"
     if not any(p["url"] == url for p in case["photos"]):
-        case["photos"] = [*case["photos"], {"url": url, "caption": f"পাতার {shown} আক্রান্ত", "at": _now()}][-MAX_PHOTOS:]
-    if previous is None:
-        return [f"প্রথম মাপ: পাতার {shown} আক্রান্ত"]
-
-    said = [f"ছবিতে মাপা দাগ: {bn_digits(previous)}% থেকে {shown}"]
-    if change == "worse":
-        if step is not None:
-            step["outcome"], step["status"] = "worse", "attention"
-            step["note"] = f"ছবিতে মাপা দাগ {bn_digits(previous)}% থেকে বেড়ে {shown} হয়েছে"
-        if case["stage"] == "in_treatment":
-            case["stage"] = "escalated"
-            words = CULTIVATION_STAGE_WORDS if case["plan_type"] == "cultivation" else STAGE_WORDS
-            said.append(f"অবস্থা: {words['escalated']}")
+        case["photos"] = [*case["photos"], {"url": url, "caption": " · ".join(captions), "at": _now()}][-MAX_PHOTOS:]
+    if rose and case["stage"] == "in_treatment":
+        case["stage"] = "escalated"
+        words = CULTIVATION_STAGE_WORDS if case["plan_type"] == "cultivation" else STAGE_WORDS
+        said.append(f"অবস্থা: {words['escalated']}")
     return said
 
 
