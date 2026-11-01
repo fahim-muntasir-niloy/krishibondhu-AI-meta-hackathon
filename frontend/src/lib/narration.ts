@@ -3,7 +3,7 @@
  * "বগুড়ার ৩ দিনের আবহাওয়ার পূর্বাভাস দেখছি" → "বগুড়ার আবহাওয়া দেখা হয়েছে".
  */
 import type { LucideIcon } from "lucide-react";
-import { BookOpenCheck, Brain, CalendarCheck, ClipboardList, CloudSun, FlaskConical, Globe, Images, MapPin, ScanSearch, Wrench } from "lucide-react";
+import { BookOpenCheck, Brain, CalendarCheck, ClipboardList, CloudSun, FlaskConical, Globe, ImagePlus, Images, MapPin, ScanSearch, Wrench } from "lucide-react";
 import { bnDigits, term } from "./bn";
 
 export type StepStatus = "running" | "done" | "error" | "stopped";
@@ -112,14 +112,23 @@ const narrators: Record<string, Narrator> = {
   segment_image: (args, status, result) => {
     const labels = asArray(args.targets).map((t) => str(t.label)).filter(Boolean);
     if (status !== "done") return { icon: ScanSearch, title: `ছবিতে ${labels.join(", ") || "সমস্যা"} চিহ্নিত করছি` };
-    const found = asArray((result as Args | undefined)?.found);
+    const r = (result ?? {}) as Args;
+    const found = asArray(r.found);
+    const pct = (r.measurement as Args | undefined)?.lesion_pct;
     return found.length
       ? {
           icon: ScanSearch,
-          title: "ছবিতে চিহ্নিত করা হয়েছে",
+          title: typeof pct === "number" ? `পাতার ${bnDigits(pct)}% আক্রান্ত, মেপে দেখা হয়েছে` : "ছবিতে চিহ্নিত করা হয়েছে",
           detail: found.map((f) => `${str(f.label)}: ${bnDigits(Number(f.count))}টি`).join(" · "),
         }
       : { icon: ScanSearch, title: "ছবিতে চিহ্নিত করার মতো কিছু পাওয়া যায়নি" };
+  },
+
+  make_picture_card: (args, status, result) => {
+    if (status !== "done") return { icon: ImagePlus, title: `ছবিতে বোঝানোর কার্ড আঁকছি: ${str(args.title, "কাজের নিয়ম")}` };
+    return (result as Args | undefined)?.card_image_url
+      ? { icon: ImagePlus, title: "ছবির কার্ড তৈরি হয়েছে", detail: str(args.title) || undefined }
+      : { icon: ImagePlus, title: "ছবির কার্ড তৈরি করা গেল না" };
   },
 
   find_registered_pesticides: (args, status, result) => {
