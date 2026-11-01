@@ -46,6 +46,8 @@ from psycopg import Connection
 from psycopg.types.json import Jsonb
 
 from meta_hackathon.db import farmer
+from meta_hackathon.gallery import media_url
+from meta_hackathon.utils.bangla import bn_digits
 
 Kind = Literal["action", "check"]
 # todo: not yet. done: done, or a check answered. attention: something went
@@ -65,6 +67,10 @@ MAX_PHOTOS = 12
 MAX_ACTIVITY = 40
 MAX_TEXT = 300
 MAX_TITLE = 120
+MAX_MEASUREMENTS = 12
+# The same leaf reframed read 13.9-16.4% where it should read 14.5%, so smaller changes are noise.
+LESION_MIN_POINTS = 3.0
+LESION_MIN_RELATIVE = 0.25
 AGENT, FARMER = "agent", "farmer"
 Actor = Literal["agent", "farmer"]
 
@@ -198,6 +204,14 @@ def _next_step_number(steps: list[dict]) -> int:
     return max(numbers, default=0) + 1
 
 
+def lesion_change(before: float, after: float) -> Outcome:
+    """What a change in the measured lesion share means, beyond measurement noise."""
+    diff = after - before
+    if abs(diff) < LESION_MIN_POINTS or abs(diff) < before * LESION_MIN_RELATIVE:
+        return "same"
+    return "worse" if diff > 0 else "better"
+
+
 def progress(steps: list[dict]) -> dict:
     """Counts over the steps still in the plan."""
     live = [s for s in steps if s["status"] != "skipped"]
@@ -223,6 +237,7 @@ def normalized(case: dict) -> dict:
         "plan_type": "treatment",
         "start_date": None,
         "anchor_label": "",
+        "measurements": [],
         **case,
         "steps": [{**_STEP_DEFAULTS, **step} for step in case["steps"]],
     }
@@ -271,6 +286,11 @@ def case_for_model(view: dict) -> str:
         if s["source"]:
             line += f" -- source: {s['source']}"
         lines.append(line)
+    if view["measurements"]:
+        lines.append(
+            "leaf damage measured from photos, oldest first: "
+            + ", ".join(f"{m['lesion_pct']}% ({m['change'] or 'first'}, {m['at'][:10]})" for m in view["measurements"])
+        )
     if view["photos"]:
         lines.append(f"{len(view['photos'])} photo(s) on file, latest: {view['photos'][-1]['caption'] or '(no caption)'}")
     if recent := view["activity"][-8:]:
@@ -347,6 +367,49 @@ def get_case(phone: str, case_id: str) -> dict | None:
     return row["data"] if row else None
 
 
+def _attach_measurement(conn: Connection, phone: str, case: dict, measurement_id: str, step_id: str | None) -> list[str]:
+    """File a measurement segment_image stored, compare it with the last one, and log it.
+
+    A rise beyond noise is evidence enough to act on: the check is marked worse and the
+    case escalates, whatever was reported, since a false alarm costs one phone call. A fall
+    changes nothing by itself, since a missed lesion or different light can look like
+    healing; the agent has to look at the photo and decide. Returns the activity lines."""
+    name = f"{measurement_id}.jpg"
+    row = conn.execute("SELECT measurement, url FROM images WHERE name = %s AND phone = %s", (name, phone)).fetchone()
+    if row is None or row["measurement"] is None:
+        raise CaseError(f"No measurement {measurement_id}. Use a measurement_id from segment_image.")
+    if any(m["id"] == measurement_id for m in case["measurements"]):
+        return []
+    step = None
+    if step_id is not None and (step := next((s for s in case["steps"] if s["id"] == step_id), None)) is None:
+        raise CaseError(f"No step {step_id} in this case.")
+
+    pct = row["measurement"]["lesion_pct"]
+    previous = case["measurements"][-1]["lesion_pct"] if case["measurements"] else None
+    change = None if previous is None else lesion_change(previous, pct)
+    url = row["url"] or media_url(name)
+    case["measurements"] = [
+        *case["measurements"],
+        {"id": measurement_id, "url": url, "lesion_pct": pct, "at": _now(), "step_id": step_id, "change": change},
+    ][-MAX_MEASUREMENTS:]
+    shown = f"{bn_digits(pct)}%"
+    if not any(p["url"] == url for p in case["photos"]):
+        case["photos"] = [*case["photos"], {"url": url, "caption": f"পাতার {shown} আক্রান্ত", "at": _now()}][-MAX_PHOTOS:]
+    if previous is None:
+        return [f"প্রথম মাপ: পাতার {shown} আক্রান্ত"]
+
+    said = [f"ছবিতে মাপা দাগ: {bn_digits(previous)}% থেকে {shown}"]
+    if change == "worse":
+        if step is not None:
+            step["outcome"], step["status"] = "worse", "attention"
+            step["note"] = f"ছবিতে মাপা দাগ {bn_digits(previous)}% থেকে বেড়ে {shown} হয়েছে"
+        if case["stage"] == "in_treatment":
+            case["stage"] = "escalated"
+            words = CULTIVATION_STAGE_WORDS if case["plan_type"] == "cultivation" else STAGE_WORDS
+            said.append(f"অবস্থা: {words['escalated']}")
+    return said
+
+
 def _write(conn: Connection, phone: str, case: dict, *, insert: bool = False) -> None:
     case["updated_at"] = _now()
     if insert:
@@ -377,6 +440,7 @@ def create_case(
     plan_type: PlanType = "treatment",
     start_date: str | None = None,
     anchor_label: str = "",
+    baseline_measurement_id: str | None = None,
 ) -> dict:
     if not steps:
         raise CaseError("The plan is empty. List what the farmer should do and when to check in `steps`.")
@@ -420,10 +484,14 @@ def create_case(
             "warning_signs": [_clip(w, 160) for w in warning_signs[:6] if w.strip()],
             "steps": built,
             "photos": [],
+            "measurements": [],
             "thread_id": thread_id,
             "created_at": _now(),
             "activity": [_event(AGENT, f"{len(steps)}টি ধাপের পরিকল্পনা শুরু হলো")],
         }
+        if baseline_measurement_id:
+            said = _attach_measurement(conn, phone, case, baseline_measurement_id, None)
+            case["activity"] += [_event(AGENT, t) for t in said]
         _write(conn, phone, case, insert=True)
     return case
 
@@ -441,6 +509,8 @@ def change_case(
     end_date: str | None = None,
     start_date: str | None = None,
     warning_signs: list[str] | None = None,
+    add_measurement_id: str | None = None,
+    measurement_step_id: str | None = None,
     actor: Actor = AGENT,
 ) -> dict:
     """Apply a set of changes at once, and log them as `actor`'s; nothing is
@@ -450,7 +520,8 @@ def change_case(
             conn, phone, case_id,
             changes=changes, add_steps=add_steps, remove_step_ids=remove_step_ids, add_photo=add_photo,
             stage=stage, next_step=next_step, end_date=end_date, start_date=start_date,
-            warning_signs=warning_signs, actor=actor,
+            warning_signs=warning_signs, add_measurement_id=add_measurement_id,
+            measurement_step_id=measurement_step_id, actor=actor,
         )
 
 
@@ -474,6 +545,8 @@ def apply_changes(
     start_date: str | None = None,
     warning_signs: list[str] | None = None,
     note_event: str | None = None,
+    add_measurement_id: str | None = None,
+    measurement_step_id: str | None = None,
     actor: Actor = AGENT,
 ) -> dict:
     """change_case's work, in an open db.farmer() transaction."""
@@ -569,6 +642,9 @@ def apply_changes(
         if end != case["end_date"]:
             case["end_date"] = end
             said.append(f"শেষ চেকআপ {end}" if end else "শেষ চেকআপের তারিখ সরানো হলো")
+    # Last: evidence of a rise stands over any outcome or stage set in this same call.
+    if add_measurement_id:
+        said += _attach_measurement(conn, phone, case, add_measurement_id, measurement_step_id)
     if note_event:
         said.append(_clip(note_event))
     if said:

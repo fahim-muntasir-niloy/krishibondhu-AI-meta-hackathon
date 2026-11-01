@@ -63,6 +63,7 @@ def start_crop_case(
     warning_signs: list[str] | None = None,
     next_step: str = "",
     end_date: str | None = None,
+    baseline_measurement_id: str | None = None,
 ) -> tuple[str, dict]:
     """Start tracking a crop problem's treatment plan, in a pane beside the chat.
 
@@ -80,6 +81,8 @@ def start_crop_case(
     - warning_signs: up to 4 short Bangla signs that mean "tell us at once".
     - next_step: the first thing to do, in one Bangla sentence.
     - end_date: YYYY-MM-DD of the last check; defaults to the last step's date.
+    - baseline_measurement_id: measurement_id from segment_image on the farmer's photo, the
+      day-0 figure that later photos are compared with.
     """
     try:
         case = create_case(
@@ -94,6 +97,7 @@ def start_crop_case(
             next_step=next_step,
             end_date=end_date,
             thread_id=_thread(runtime),
+            baseline_measurement_id=baseline_measurement_id,
         )
     except CaseError as e:
         raise ToolException(f"The case was not started: {e}") from e
@@ -171,6 +175,8 @@ def update_crop_case(
     end_date: str | None = None,
     start_date: str | None = None,
     warning_signs: list[str] | None = None,
+    add_measurement_id: str | None = None,
+    measurement_step_id: str | None = None,
 ) -> tuple[str, dict]:
     """Record progress on one of the farmer's plans (treatment or cultivation).
 
@@ -179,7 +185,12 @@ def update_crop_case(
       farmer reports or what a new photo shows, with a `note` on what you see; use status
       "attention" when it is worse or something went wrong. `due` moves a step.
     - add_steps / remove_step_ids: when the plan changes (e.g. a second spray, another check).
-    - add_photo: after segment_image on a follow-up photo, file its annotated_image_url
+    - add_measurement_id: after segment_image on a follow-up photo, its measurement_id (this
+      also files the photo; no add_photo needed). It is compared with the last measurement.
+      A clear rise marks measurement_step_id (the check step) worse and escalates the case by
+      itself, whatever the farmer reported. A fall changes nothing by itself: look at the
+      photo, and only then set the outcome. The result says what happened.
+    - add_photo: a follow-up photo with no measurement: file its annotated_image_url
       with a caption, so before and after can be compared.
     - stage: in_treatment, escalated (worse, or an officer is needed), resolved (recovered),
       abandoned (the farmer stopped).
@@ -205,6 +216,8 @@ def update_crop_case(
             end_date=end_date,
             start_date=start_date,
             warning_signs=warning_signs,
+            add_measurement_id=add_measurement_id,
+            measurement_step_id=measurement_step_id,
         )
     except CaseError as e:
         raise ToolException(f"Nothing was changed: {e}") from e
