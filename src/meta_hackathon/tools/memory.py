@@ -4,8 +4,7 @@ LangGraph store (persistence.py, Postgres).
 
 Memories live under ("memories", <phone>). The phone always comes from the
 request's identity, never from the model, so a farmer's memories can only be
-read or written in that farmer's own runs; auth.py applies the same rule to
-the Agent Server's /store API.
+read or written in that farmer's own runs.
 
 The system prompt lists the farmer's memories every turn
 (middlewares/system_prompt.py); fetch_user_memory is for searching them.
