@@ -1,4 +1,4 @@
-![KrishiBondhu.AI: a Bangla crop-health advisor for Bangladeshi farmers, built for the Meta Global AI Developer Hackathon 2026](assets/banner.png)
+![KrishiBondhu.AI: a Bangla crop-health advisor for Bangladeshi farmers, built for the Meta Global AI Developer Hackathon 2026](assets/banner_v2.png)
 
 <h1 align="center">KrishiBondhu.AI 🌱</h1>
 
