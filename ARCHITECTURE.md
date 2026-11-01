@@ -278,6 +278,13 @@ sequenceDiagram
 - **Plain-text API** (`src/meta_hackathon/api/`): `/v1/chat`, `/v1/chat/stream`, `/v1/chat/history` for
   text channels (WhatsApp later).
 
+### Tracing
+
+Runs go to LangSmith. LangChain traces the agent, the main model and each tool call; `tracing.py` and the
+tools add what it cannot see, so a tool opens into its own model calls and steps: every SAM 3.1 prompt with
+what it found, the leaf measurement, Muse Image with its reasoning, and Muse web search. Annotated photos and
+picture cards are attached as images.
+
 ### Changing the UI components
 
 The agent's openui-lang system prompt is generated from the component library in

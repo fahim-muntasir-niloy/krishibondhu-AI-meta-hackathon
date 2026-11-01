@@ -20,6 +20,7 @@ from typing import Literal
 import httpx
 from langchain.messages import HumanMessage
 from langchain.tools import ToolRuntime, tool
+from langsmith import traceable
 from meta_sam_parser import (
     ResponsesStreamError,
     decode_mask_to_raster,
@@ -34,6 +35,7 @@ from meta_hackathon.agent.context import phone_number
 from meta_hackathon.config import settings
 from meta_hackathon.gallery import record_image, save_image
 from meta_hackathon.lesions import Instance, Measurement, measure, pixels, seeds, union
+from meta_hackathon.tracing import attach_jpeg, model_metadata, no_inputs
 from meta_hackathon.utils.bangla import bn_digits
 from meta_hackathon.utils.fonts import bangla_font
 
@@ -109,6 +111,20 @@ def _instances(records: list) -> list[Instance]:
     return out
 
 
+def _found_objects(instances: list[Instance]) -> dict:
+    return {
+        "count": len(instances),
+        "objects": [{"box": i.box, "confidence": i.confidence, "pixels": pixels(i.mask)} for i in instances[:40]],
+    }
+
+
+@traceable(
+    run_type="llm",
+    name="SAM 3.1",
+    metadata=model_metadata(settings.SEGMENT_MODEL_NAME),
+    process_inputs=lambda i: {"prompt": i["prompt"]},
+    process_outputs=_found_objects,
+)
 async def _segment(data_url: str, prompt: str) -> list[Instance]:
     """Every object SAM finds for a text or point prompt. An empty list is a valid answer."""
     events = await _client.responses.create(
@@ -138,6 +154,7 @@ def _tint(img: Image.Image, mask: Image.Image, color: str, thickness: int) -> Im
     return shaded
 
 
+@traceable(name="draw annotated photo", process_inputs=no_inputs, process_outputs=lambda jpeg: {"jpeg_bytes": len(jpeg)})
 def _draw(img: Image.Image, found: list[tuple[Target, str, list[Instance]]], measured: Measurement | None) -> bytes:
     """The photo with its masks shaded, the labels and the measured share, as a JPEG."""
     scale = max(img.size) / 1000
@@ -178,7 +195,20 @@ def _draw(img: Image.Image, found: list[tuple[Target, str, list[Instance]]], mea
 
     buf = io.BytesIO()
     img.save(buf, "JPEG", quality=88)
+    attach_jpeg("annotated_photo", buf.getvalue())
     return buf.getvalue()
+
+
+_traced_seeds = traceable(name="pick points on the leaf", process_inputs=no_inputs, process_outputs=lambda p: {"points": p})(seeds)
+
+
+def _measured_result(m: Measurement | None) -> dict:
+    if m is None:
+        return {"measured": False, "reason": "no reliable leaf"}
+    return {"lesion_pct": m.lesion_pct, "lesion_px": m.lesion_px, "leaf_px": m.leaf_px, "leaf_confidence": m.leaf_confidence}
+
+
+_traced_measure = traceable(name="lesion share of the leaf", process_inputs=no_inputs, process_outputs=_measured_result)(measure)
 
 
 @tool
@@ -206,13 +236,29 @@ async def segment_image(targets: list[Target], photo: int = 1, *, runtime: ToolR
     asked: dict[str, asyncio.Task] = {}
 
     def ask(data_url: str, prompt: str) -> asyncio.Task:
-        return asked.setdefault(prompt, asyncio.create_task(_segment(data_url, prompt)))
+        if prompt not in asked:
+            asked[prompt] = asyncio.create_task(_segment(data_url, prompt))
+        return asked[prompt]
 
+    @traceable(
+        name="find target",
+        process_inputs=lambda i: {"target": i["target"]},
+        process_outputs=lambda r: {"searched_as": r[1] or None, "count": len(r[0])},
+    )
     async def find(data_url: str, target: Target) -> tuple[list[Instance], str]:
         for query in dict.fromkeys(q for q in (target.name.strip(), target.looks_like.strip(), *_FALLBACKS[target.kind]) if q):
             if instances := await ask(data_url, query):
                 return instances, query
         return [], ""
+
+    @traceable(name="measure leaf damage", process_inputs=no_inputs, process_outputs=_measured_result)
+    async def measure_leaf(img: Image.Image, data_url: str) -> Measurement | None:
+        lesions = [i for group in await asyncio.gather(*(ask(data_url, q) for q in _LESION_QUERIES)) for i in group]
+        points = await asyncio.to_thread(_traced_seeds, img, lesions)
+        leaves = await asyncio.gather(
+            *(ask(data_url, f"<0f>1<|point;x={x};y={y};w={img.width};h={img.height}|>") for x, y in points)
+        )
+        return await asyncio.to_thread(_traced_measure, img.size, lesions, [i for group in leaves for i in group])
 
     measured = None
     try:
@@ -220,12 +266,7 @@ async def segment_image(targets: list[Target], photo: int = 1, *, runtime: ToolR
         img, data_url = await asyncio.to_thread(_decode, await _fetch(photos[photo - 1]))
         results = await asyncio.gather(*(find(data_url, t) for t in targets))
         if measuring:
-            lesions = [i for group in await asyncio.gather(*(ask(data_url, q) for q in _LESION_QUERIES)) for i in group]
-            points = await asyncio.to_thread(seeds, img, lesions)
-            leaves = await asyncio.gather(
-                *(ask(data_url, f"<0f>1<|point;x={x};y={y};w={img.width};h={img.height}|>") for x, y in points)
-            )
-            measured = await asyncio.to_thread(measure, img.size, lesions, [i for group in leaves for i in group])
+            measured = await measure_leaf(img, data_url)
     except (OpenAIError, ResponsesStreamError, httpx.HTTPError, OSError) as e:
         for task in asked.values():
             task.cancel()

@@ -17,12 +17,14 @@ from pathlib import Path
 from typing import Literal
 
 from langchain.tools import ToolException, ToolRuntime, tool
+from langsmith import traceable
 from openai import AsyncOpenAI, OpenAIError
 from PIL import Image, ImageDraw, ImageFont
 
 from meta_hackathon.agent.context import phone_number
 from meta_hackathon.config import settings
 from meta_hackathon.gallery import record_image, save_image
+from meta_hackathon.tracing import attach_jpeg, model_metadata
 from meta_hackathon.utils.bangla import bn_digits
 from meta_hackathon.utils.fonts import bangla_font
 
@@ -65,13 +67,30 @@ def _prompt(panels: list[str]) -> str:
     )
 
 
+def _image_response(resp) -> dict:
+    """The model's reasoning and usage; the image itself is attached to the finished card."""
+    usage = resp.usage
+    return {
+        "reasoning": [s.text for item in resp.output if item.type == "reasoning" for s in item.summary],
+        "image_returned": any(item.type == "image_generation_call" and item.result for item in resp.output),
+        "usage_metadata": usage
+        and {"input_tokens": usage.input_tokens, "output_tokens": usage.output_tokens, "total_tokens": usage.total_tokens},
+    }
+
+
+@traceable(run_type="llm", name="Muse Image", metadata=model_metadata(settings.IMAGE_MODEL_NAME), process_outputs=_image_response)
+async def _draw_with_muse(prompt: str):
+    return await _client.responses.create(model=settings.IMAGE_MODEL_NAME, input=prompt)
+
+
+@traceable(name="get picture", process_outputs=lambda data: {"image_bytes": len(data)})
 async def _generate(prompt: str) -> bytes:
     """The picture for this prompt. Kept outside the served folder and reused: the same
     scene (the protective gear card) is asked for again and again, and each takes a while."""
     cache = Path(settings.MEDIA_DIR) / "card-cache" / f"{hashlib.sha256(f'{settings.IMAGE_MODEL_NAME}:{prompt}'.encode()).hexdigest()}.img"
     if await asyncio.to_thread(cache.is_file):
         return await asyncio.to_thread(cache.read_bytes)
-    resp = await _client.responses.create(model=settings.IMAGE_MODEL_NAME, input=prompt)
+    resp = await _draw_with_muse(prompt)
     encoded = next((item.result for item in resp.output if item.type == "image_generation_call" and item.result), None)
     if not encoded:
         raise ValueError("the model returned no image")
@@ -97,6 +116,11 @@ def _wrap(draw: ImageDraw.ImageDraw, text: str, font: ImageFont.FreeTypeFont, wi
     return lines
 
 
+@traceable(
+    name="add Bangla captions",
+    process_inputs=lambda i: {"title": i["title"], "captions": i["captions"]},
+    process_outputs=lambda jpeg: {"jpeg_bytes": len(jpeg)},
+)
 def _compose(data: bytes, title: str, captions: list[str]) -> bytes:
     """The picture with a Bangla title above and a numbered caption under each panel, as a JPEG."""
     art = Image.open(io.BytesIO(data)).convert("RGB")
@@ -136,6 +160,7 @@ def _compose(data: bytes, title: str, captions: list[str]) -> bytes:
 
     buf = io.BytesIO()
     card.save(buf, "JPEG", quality=88)
+    attach_jpeg("picture_card", buf.getvalue())
     return buf.getvalue()
 
 
