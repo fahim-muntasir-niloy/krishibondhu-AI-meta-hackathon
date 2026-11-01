@@ -38,13 +38,29 @@ CREATE TABLE IF NOT EXISTS crop_cases (
 CREATE INDEX IF NOT EXISTS crop_cases_phone ON crop_cases (phone, updated_at DESC);
 
 CREATE TABLE IF NOT EXISTS images (
-    name        text PRIMARY KEY,                -- <random hex>.jpg in MEDIA_DIR
+    name        text PRIMARY KEY,                -- <random hex>.jpg
     phone       text NOT NULL REFERENCES farmers ON DELETE CASCADE,
     thread_id   text,
     labels      jsonb NOT NULL,
     created_at  timestamptz NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS images_phone ON images (phone, created_at DESC);
+-- Lesion share of the leaf, measured from SAM's masks (tools/segment.py); cases refer to it by image name.
+ALTER TABLE images ADD COLUMN IF NOT EXISTS measurement jsonb;
+-- Where the file is (Vercel Blob). NULL: an older photo, in MEDIA_DIR under its name.
+ALTER TABLE images ADD COLUMN IF NOT EXISTS url text;
+ALTER TABLE images ADD COLUMN IF NOT EXISTS kind text NOT NULL DEFAULT 'annotated';  -- annotated | upload | card
+
+-- The sidebar's conversations. Their messages are the checkpointer's, under the same id.
+CREATE TABLE IF NOT EXISTS threads (
+    thread_id   text PRIMARY KEY,
+    phone       text NOT NULL REFERENCES farmers ON DELETE CASCADE,
+    title       text,
+    pinned      boolean NOT NULL DEFAULT false,
+    created_at  timestamptz NOT NULL DEFAULT now(),
+    updated_at  timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS threads_phone ON threads (phone, pinned DESC, updated_at DESC);
 
 -- ---------------------------------------------------------------------------
 -- Officers (seeded roster, public) and bookings with them
@@ -101,6 +117,7 @@ GRANT EXECUTE ON FUNCTION officer_busy(text, timestamptz, timestamptz) TO krishi
 ALTER TABLE farmers    ENABLE ROW LEVEL SECURITY;
 ALTER TABLE crop_cases ENABLE ROW LEVEL SECURITY;
 ALTER TABLE images     ENABLE ROW LEVEL SECURITY;
+ALTER TABLE threads    ENABLE ROW LEVEL SECURITY;
 ALTER TABLE bookings   ENABLE ROW LEVEL SECURITY;
 
 DROP POLICY IF EXISTS own_rows ON farmers;
@@ -115,11 +132,15 @@ DROP POLICY IF EXISTS own_rows ON images;
 CREATE POLICY own_rows ON images TO krishi_app
     USING (phone = current_setting('app.phone', true))
     WITH CHECK (phone = current_setting('app.phone', true));
+DROP POLICY IF EXISTS own_rows ON threads;
+CREATE POLICY own_rows ON threads TO krishi_app
+    USING (phone = current_setting('app.phone', true))
+    WITH CHECK (phone = current_setting('app.phone', true));
 DROP POLICY IF EXISTS own_rows ON bookings;
 CREATE POLICY own_rows ON bookings TO krishi_app
     USING (phone = current_setting('app.phone', true))
     WITH CHECK (phone = current_setting('app.phone', true));
 
-GRANT SELECT, INSERT, UPDATE, DELETE ON farmers, crop_cases, images, bookings TO krishi_app;
+GRANT SELECT, INSERT, UPDATE, DELETE ON farmers, crop_cases, images, threads, bookings TO krishi_app;
 GRANT SELECT ON officers TO krishi_app;
 -- Conversation checkpoints (checkpointer.py) get no grant: the app role cannot read them.
