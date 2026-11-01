@@ -19,5 +19,10 @@ def get_agent(request: Request):
     return request.app.state.agent
 
 
+def get_web_agent(request: Request):
+    return request.app.state.web_agent
+
+
 PhoneNumber = Annotated[str, Depends(get_phone_number)]
 Agent = Annotated[Any, Depends(get_agent)]
+WebAgent = Annotated[Any, Depends(get_web_agent)]
