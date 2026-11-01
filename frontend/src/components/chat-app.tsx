@@ -1,7 +1,5 @@
 "use client";
 
-import { Client, type Thread } from "@langchain/langgraph-sdk";
-import { useStream } from "@langchain/react";
 import type { ActionEvent } from "@openuidev/react-lang";
 import { ThemeProvider, useThemeModePreference } from "@openuidev/react-ui";
 import {
@@ -14,12 +12,15 @@ import {
   Menu,
   MessageSquare,
   Moon,
+  Pin,
+  PinOff,
   PanelLeftClose,
   PanelLeftOpen,
   Plus,
   Sprout,
   Sun,
   Target,
+  Trash2,
   X,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -36,10 +37,11 @@ import { UserMessage } from "@/components/user-message";
 import { bnDigits } from "@/lib/bn";
 import { BOOKING_TOOLS, type Booking, cancelBooking, isBooking, listBookings } from "@/lib/bookings";
 import { CASE_TOOLS, type CropCase, deleteCase, isCase, listCases, updateCase, updateStep } from "@/lib/cases";
-import { API_HEADERS, API_URL, ASSISTANT_ID, PHONE_HEADER } from "@/lib/config";
+import { API_URL } from "@/lib/config";
+import { deleteThread, listThreads, pinThread, type Thread, useChat } from "@/lib/chat";
 import { type GalleryImage, listImages } from "@/lib/gallery";
 import { decodeFormMessage, encodeFormMessage, flattenFormState, withDetails } from "@/lib/form-message";
-import { contentImages, imageBlock } from "@/lib/images";
+import { imageBlock } from "@/lib/images";
 import { placeLabel, profileContext, type Profile } from "@/lib/profile";
 import { buildTurns, type Step } from "@/lib/turns";
 
@@ -109,8 +111,6 @@ type ChatProps = {
 
 function Chat({ profile, onSignOut, mode, onToggleTheme }: ChatProps) {
   const { phone, name } = profile;
-  const headers = useMemo(() => ({ ...API_HEADERS, [PHONE_HEADER]: phone }), [phone]);
-  const client = useMemo(() => new Client({ apiUrl: API_URL, defaultHeaders: headers }), [headers]);
   const [threadId, setThreadId] = useState<string | null>(null);
   const [threads, setThreads] = useState<Thread[]>([]);
 
@@ -155,11 +155,10 @@ function Chat({ profile, onSignOut, mode, onToggleTheme }: ChatProps) {
   );
 
   const refreshThreads = useCallback(() => {
-    client.threads
-      .search({ limit: 30, sortBy: "updated_at", sortOrder: "desc" })
+    listThreads(phone)
       .then(setThreads)
       .catch(() => setThreads([]));
-  }, [client]);
+  }, [phone]);
   useEffect(refreshThreads, [refreshThreads]);
 
   const refreshCases = useCallback(() => {
@@ -207,22 +206,30 @@ function Chat({ profile, onSignOut, mode, onToggleTheme }: ChatProps) {
     setCases((prev) => [c, ...prev.filter((x) => x.id !== c.id)]);
   }, []);
 
-  const stream = useStream({
-    apiUrl: API_URL,
-    assistantId: ASSISTANT_ID,
-    defaultHeaders: headers,
-    threadId,
-    onThreadId: (id) => {
+  const onThreadCreated = useCallback(
+    (id: string) => {
       setThreadId(id);
       refreshThreads();
     },
-    onCompleted: () => {
-      refreshThreads();
-      refreshCases();
-      refreshImages();
-      refreshBookings();
-    },
-  });
+    [refreshThreads],
+  );
+  const onFinished = useCallback(() => {
+    refreshThreads();
+    refreshCases();
+    refreshImages();
+    refreshBookings();
+  }, [refreshThreads, refreshCases, refreshImages, refreshBookings]);
+  const stream = useChat({ phone, threadId, onThreadCreated, onFinished });
+
+  const onPinThread = async (t: Thread) => {
+    await pinThread(phone, t.thread_id, !t.pinned);
+    refreshThreads();
+  };
+  const onDeleteThread = async (t: Thread) => {
+    await deleteThread(phone, t.thread_id);
+    if (t.thread_id === threadId) setThreadId(null);
+    refreshThreads();
+  };
 
   const turns = useMemo(() => buildTurns(stream.messages, stream.isLoading), [stream.messages, stream.isLoading]);
   const lastTurn = turns.at(-1);
@@ -255,9 +262,8 @@ function Chat({ profile, onSignOut, mode, onToggleTheme }: ChatProps) {
       const content = images.length
         ? [...(text ? [{ type: "text" as const, text }] : []), ...images.map(imageBlock)]
         : text;
-      // Phone comes from the auth identity; name, place and the open case go into the system
-      // prompt. The Agent Server copies `configurable` into the run context (UserContext).
-      void stream.submit({ messages: [{ type: "human", content }] }, { config: { configurable: context } });
+      // Name, place and the open case go into the system prompt (UserContext).
+      void stream.submit(content, context, newThreadTitle(text, images.length > 0));
     },
     [stream, context],
   );
@@ -349,16 +355,14 @@ function Chat({ profile, onSignOut, mode, onToggleTheme }: ChatProps) {
           <nav className="thread-list" aria-label="কথোপকথন">
             {threads.length === 0 && <p className="thread-empty">আপনার কথোপকথনগুলো এখানে দেখা যাবে।</p>}
             {threads.map((t) => (
-              <button
+              <ThreadItem
                 key={t.thread_id}
-                type="button"
-                className="thread-item"
-                aria-current={t.thread_id === threadId}
-                onClick={() => openThread(t.thread_id)}
-              >
-                <MessageSquare size={14} />
-                <span>{threadTitle(t)}</span>
-              </button>
+                thread={t}
+                current={t.thread_id === threadId}
+                onOpen={() => openThread(t.thread_id)}
+                onPin={() => void onPinThread(t)}
+                onDelete={() => void onDeleteThread(t)}
+              />
             ))}
           </nav>
           <div className="sidebar-foot">
@@ -586,7 +590,7 @@ function ErrorNote({ error }: { error: unknown }) {
       {filtered
         ? "এই বার্তাটি AI সেবাদাতার নিরাপত্তা ফিল্টারে আটকে গেছে। একটু অন্যভাবে লিখে আবার চেষ্টা করুন।"
         : unreachable
-          ? `এজেন্ট সার্ভারের (${API_URL}) সাথে যোগাযোগ করা যাচ্ছে না। সার্ভার চালু আছে তো? (uv run meta-hackathon)`
+          ? `সার্ভারের (${API_URL}) সাথে যোগাযোগ করা যাচ্ছে না। সার্ভার চালু আছে তো? (uv run main.py)`
           : "উত্তর দিতে গিয়ে একটি সমস্যা হয়েছে। অনুগ্রহ করে আবার চেষ্টা করুন।"}
     </Note>
   );
@@ -601,16 +605,54 @@ function Note({ children }: { children: React.ReactNode }) {
   );
 }
 
-function threadTitle(thread: Thread): string {
-  const messages = (thread.values as { messages?: { type?: string; content?: unknown }[] } | null)?.messages ?? [];
-  const first = messages.find((m) => m.type === "human");
-  const raw = typeof first?.content === "string" ? first.content : textOf(first?.content);
-  const text = decodeFormMessage(raw).label;
-  if (!text && contentImages(first?.content).length) return "ছবি পাঠানো হয়েছে";
-  return text ? (text.length > 48 ? `${text.slice(0, 47)}…` : text) : "নতুন কথোপকথন";
+/** The sidebar's name for a conversation, from its first message. */
+function newThreadTitle(text: string, hasPhotos: boolean): string | null {
+  const label = decodeFormMessage(text).label;
+  if (!label) return hasPhotos ? "ছবি পাঠানো হয়েছে" : null;
+  return label.length > 48 ? `${label.slice(0, 47)}…` : label;
 }
 
-function textOf(content: unknown): string {
-  if (!Array.isArray(content)) return "";
-  return content.map((b) => (b && typeof b === "object" && b.type === "text" ? String(b.text ?? "") : "")).join(" ").trim();
+/** A conversation in the sidebar. Deleting takes a second click on the same button. */
+function ThreadItem({
+  thread,
+  current,
+  onOpen,
+  onPin,
+  onDelete,
+}: {
+  thread: Thread;
+  current: boolean;
+  onOpen: () => void;
+  onPin: () => void;
+  onDelete: () => void;
+}) {
+  const [confirming, setConfirming] = useState(false);
+  const deleteLabel = confirming ? "মুছে ফেলতে আবার চাপুন" : "কথোপকথন মুছুন";
+  return (
+    <div className="thread-row" aria-current={current} onMouseLeave={() => setConfirming(false)}>
+      <button type="button" className="thread-item" onClick={onOpen}>
+        {thread.pinned ? <Pin size={14} /> : <MessageSquare size={14} />}
+        <span>{thread.title ?? "নতুন কথোপকথন"}</span>
+      </button>
+      <button
+        type="button"
+        className="icon-btn thread-action"
+        onClick={onPin}
+        aria-label={thread.pinned ? "পিন সরান" : "পিন করুন"}
+        title={thread.pinned ? "পিন সরান" : "পিন করুন"}
+      >
+        {thread.pinned ? <PinOff size={14} /> : <Pin size={14} />}
+      </button>
+      <button
+        type="button"
+        className={confirming ? "icon-btn thread-action thread-delete-armed" : "icon-btn thread-action"}
+        onClick={() => (confirming ? onDelete() : setConfirming(true))}
+        onBlur={() => setConfirming(false)}
+        aria-label={deleteLabel}
+        title={deleteLabel}
+      >
+        <Trash2 size={14} />
+      </button>
+    </div>
+  );
 }
