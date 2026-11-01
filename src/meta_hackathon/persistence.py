@@ -6,12 +6,12 @@
   about a farmer (tools/memory.py), under the namespace ("memories", <phone>).
   Tables store*, made by setup().
 
-langgraph.json points the Agent Server at both; main.py enters them too for
-the plain /v1/chat routes. Each is an async context manager owning its own
-connection pool, opened on the server's event loop.
+main.py enters both for the app's lifetime. Each is an async context manager
+owning its own connection pool, opened on the server's event loop.
 
 These run as the login role, not krishi_app (db.py): the app role has no grant
-on them. Who may read a thread or a namespace is enforced by auth.py.
+on them. Who may read a thread is enforced by the threads table (threads.py);
+the memory namespace comes from the caller's phone (tools/memory.py).
 """
 
 from collections.abc import AsyncIterator
