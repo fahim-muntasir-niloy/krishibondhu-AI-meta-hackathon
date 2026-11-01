@@ -33,7 +33,7 @@ stays with them after the first answer.
 
 |  |  |
 | --- | --- |
-| 📸 **Sees the problem** | Send a photo; SAM 3.1 marks the lesions or pests on it, so the farmer sees exactly what the diagnosis is based on. Unsure? It says so and asks for a clearer photo. |
+| 📸 **Sees the problem** | Send a photo; the model names the problem and SAM 3.1 marks it, and measures how much of the leaf is diseased. Follow-up photos are compared with day 0, and a measured rise escalates to an officer. Unsure? It says so and asks for a clearer photo. |
 | 📚 **Answers from official sources** | Advice comes from *Krishoker Janala* (কৃষকের জানালা), the Department of Agricultural Extension's guidance on 998 problems across 122 crops, with reference photos to compare. |
 | 🧪 **Only registered pesticides** | Every chemical is checked against the DAE pesticide register for *that* crop. Unregistered ones are flagged, never recommended. Doses per bigha, with the WHO hazard class. |
 | 🗓️ **A plan, day by day** | Treatment becomes a timeline: spray on a dry day (it checks the forecast), look again on day 3, send a photo. Also for growing things: a full Boro rice season, mushrooms, a fertiliser schedule, every dose with its source. |
@@ -86,10 +86,10 @@ Try:
 | Layer | Tech |
 | --- | --- |
 | Models | **Muse** (reasoning, Bangla, web search) · **SAM 3.1** (segmentation) · **Meta ASR** (voice) |
-| Agent | LangChain `create_agent` on the LangGraph Agent Server, Postgres checkpoints and memory store |
+| Agent | LangChain `create_agent` in FastAPI, Postgres threads, checkpoints and memory store |
 | Web | Next.js 16, React 19, OpenUI generative UI, Leaflet, Anek Bangla |
 | Data | Postgres with row-level security, Krishoker Janala, DAE pesticide register, Open-Meteo, Wikimedia Commons |
-| Ops | Docker Compose, Caddy, ngrok, LangSmith |
+| Ops | Vercel, Vercel Blob, Docker Compose, ngrok, LangSmith |
 
 ## Project layout
 
