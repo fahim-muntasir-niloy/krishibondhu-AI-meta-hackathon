@@ -52,13 +52,15 @@ async def create_or_update_user_memory(
 ) -> str:
     """Remember a lasting fact about the farmer for future conversations, correct one, or forget one.
 
-    Save what will still matter next week: their land (size in bigha, soil, irrigation,
-    plots), crops and varieties they grow and when they plant, past problems and what
-    worked, preferences (prefers non-chemical options, calls in the evening). Not the
-    current conversation's details, not what is already in the profile or a crop case,
-    and nothing the farmer asked you not to keep.
+    Save any fact about the farmer, even one said in passing: their land (size in bigha,
+    soil, irrigation, plots), crops and varieties they grow, have planted or plan to plant,
+    fertiliser or pesticide they applied, past problems and what worked, animals and ponds,
+    preferences (prefers non-chemical options, calls in the evening). Not today's symptoms or
+    treatment, which the crop case keeps, not the profile, and nothing the farmer asked you
+    not to keep.
 
-    - content: one short fact, in Bangla, e.g. "৩ বিঘা জমিতে ব্রি ধান২৮ চাষ করেন, সেচ শ্যালো মেশিনে".
+    - content: one short fact, in Bangla, with real dates instead of words like "last month",
+      e.g. "অক্টোবর ২০২৬-এ অল্প জমিতে তুলা লাগিয়েছেন", "৩ বিঘা জমিতে ব্রি ধান২৮ চাষ করেন".
     - category: farm, crops, history (past problems and outcomes), preference or other.
     - memory_id: to update a fact that changed (from the memory list), instead of adding a
       second one that contradicts it.
