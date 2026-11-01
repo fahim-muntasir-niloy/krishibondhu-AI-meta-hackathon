@@ -4,6 +4,10 @@
 .data
 .media
 .langgraph_api
+.vercel
 **/__pycache__
 docs
-frontend
+video prompt.md
+frontend/node_modules
+frontend/dist
+frontend/.next

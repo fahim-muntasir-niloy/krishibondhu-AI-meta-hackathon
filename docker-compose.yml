@@ -1,13 +1,12 @@
 # The whole app on one HTTPS URL via ngrok:
 #
-#   https://superordinary-unvended-lean.ngrok-free.dev       → frontend
-#   https://superordinary-unvended-lean.ngrok-free.dev/api/* → backend
+#   https://superordinary-unvended-lean.ngrok-free.dev
 #
 # Put NGROK_AUTHTOKEN=... in .env (with the rest of the backend settings), then
 #   docker compose up --build
 #
-# Locally the same routing is on http://localhost:3000 (localhost counts as a
-# secure context, so the mic works there too). ngrok inspector: localhost:4040.
+# Locally the same app is on http://localhost:3000 (localhost counts as a secure
+# context, so the mic works there too). ngrok inspector: localhost:4040.
 
 services:
   backend:
@@ -15,13 +14,12 @@ services:
     env_file: .env
     environment:
       # Annotated photo links in replies; must be reachable from the farmer's phone.
-      PUBLIC_BASE_URL: https://superordinary-unvended-lean.ngrok-free.dev/api
+      PUBLIC_BASE_URL: https://superordinary-unvended-lean.ngrok-free.dev
     ports:
-      - "2024:2024" # direct access, e.g. for LangGraph Studio
+      - "3000:2024"
     volumes:
       - data:/app/.data
       - media:/app/.media
-      - langgraph:/app/.langgraph_api
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:2024/health')"]
       interval: 10s
@@ -30,39 +28,18 @@ services:
       retries: 5
     restart: unless-stopped
 
-  frontend:
-    build:
-      context: ./frontend
-      args:
-        # Same origin as the page, through the proxy.
-        NEXT_PUBLIC_LANGGRAPH_API_URL: /api
-    restart: unless-stopped
-
-  proxy:
-    image: caddy:2-alpine
-    volumes:
-      - ./Caddyfile:/etc/caddy/Caddyfile:ro
-    ports:
-      - "3000:80"
-    depends_on:
-      backend:
-        condition: service_healthy
-      frontend:
-        condition: service_started
-    restart: unless-stopped
-
   ngrok:
     image: ngrok/ngrok:latest
-    command: ["http", "proxy:80", "--url", "https://superordinary-unvended-lean.ngrok-free.dev"]
+    command: ["http", "backend:2024", "--url", "https://superordinary-unvended-lean.ngrok-free.dev"]
     environment:
       NGROK_AUTHTOKEN: ${NGROK_AUTHTOKEN:?set NGROK_AUTHTOKEN in .env}
     ports:
       - "4040:4040"
     depends_on:
-      - proxy
+      backend:
+        condition: service_healthy
     restart: unless-stopped
 
 volumes:
   data:
   media:
-  langgraph:
