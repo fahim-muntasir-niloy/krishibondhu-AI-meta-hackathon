@@ -1,7 +1,7 @@
 """`krishi-db`: set up and fill the Postgres database (DB_URI). Runs as the
 login role, which owns the tables and bypasses row-level security.
 
-    uv run krishi-db migrate              # app schema, RLS policies, officer roster (idempotent)
+    uv run krishi-db migrate              # app schema, RLS policies, officer roster, LangGraph tables (idempotent)
     uv run krishi-db load-agri [PATH]     # reference data from agri.db into the `agri` schema
     uv run krishi-db import-sqlite [PATH] # cases and photo records from the old .data/krishi.sqlite3
 
@@ -18,6 +18,8 @@ import time
 from pathlib import Path
 
 import psycopg
+from langgraph.checkpoint.postgres import PostgresSaver
+from langgraph.store.postgres import PostgresStore
 
 from meta_hackathon.config import settings
 
@@ -102,6 +104,11 @@ def migrate() -> None:
                 f"ON CONFLICT (id) DO UPDATE SET {updates}",
                 [[o[c] for c in cols] for o in officers],
             )
+    # The conversation checkpoints and memories (persistence.py).
+    with PostgresSaver.from_conn_string(settings.DB_URI) as saver:
+        saver.setup()
+    with PostgresStore.from_conn_string(settings.DB_URI) as memory:
+        memory.setup()
     print(f"Schema applied; {len(officers)} officers in the roster.")
 
 

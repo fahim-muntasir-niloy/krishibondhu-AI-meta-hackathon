@@ -26,9 +26,9 @@ from functools import cache
 
 from psycopg import Connection
 from psycopg.rows import dict_row
-from psycopg_pool import ConnectionPool
+from psycopg_pool import ConnectionPool, NullConnectionPool
 
-from meta_hackathon.config import settings
+from meta_hackathon.config import SERVERLESS, settings
 
 APP_ROLE = "krishi_app"
 
@@ -40,9 +40,10 @@ def _as_app_role(conn: Connection) -> None:
 @cache
 def pool() -> ConnectionPool:
     # Small: Aiven's free plan allows few connections, and the checkpointer has its own pool.
-    app_pool = ConnectionPool(
+    pool_class, min_size = (NullConnectionPool, 0) if SERVERLESS else (ConnectionPool, 1)
+    app_pool = pool_class(
         settings.DB_URI,
-        min_size=1,
+        min_size=min_size,
         max_size=4,
         kwargs={"autocommit": True, "row_factory": dict_row},
         configure=_as_app_role,

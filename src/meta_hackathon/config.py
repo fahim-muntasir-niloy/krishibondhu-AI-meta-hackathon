@@ -4,6 +4,12 @@ from pydantic import Field
 from pydantic_settings import BaseSettings
 
 
+# On Vercel, instances multiply and sit frozen between requests, so a connection kept open
+# is a slot lost; Aiven's free plan has 17. Pools there hold nothing between queries (db.py,
+# persistence.py).
+SERVERLESS = "VERCEL" in os.environ
+
+
 def _default_public_base_url() -> str:
     """Only local images use this (gallery.py). On Vercel: the deployment's own origin."""
     production = os.environ.get("VERCEL_ENV") == "production"

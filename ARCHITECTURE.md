@@ -15,11 +15,11 @@ One FastAPI app on Vercel is the whole deployment: it serves the API and the sta
 - **Vercel Blob** (a public store connected to the project) holds the image files; Postgres keeps their
   links (`gallery.py`).
 
-Vercel does not touch the database schema, so before deploying a schema change, run these against the
-database:
+Vercel does not touch the database schema, so before deploying a schema change or a LangGraph upgrade, run
+these against the database:
 
 ```bash
-uv run krishi-db migrate      # app tables, row-level security, officer roster (idempotent)
+uv run krishi-db migrate      # app and LangGraph tables, row-level security, officer roster (idempotent)
 uv run krishi-db load-agri    # pesticide register + Krishoker Janala advice from assets/agri.db
 ```
 
@@ -262,7 +262,8 @@ sequenceDiagram
   row-level-security policy per farmer: pooled connections run as the `krishi_app` role and set
   `app.phone` per transaction, so a farmer's queries only ever see their own rows. Conversation
   checkpoints and memories use LangGraph's `AsyncPostgresSaver` / `AsyncPostgresStore`; the reference data
-  lives in the `agri` schema.
+  lives in the `agri` schema. On Vercel the pools keep no connections between queries (`NullConnectionPool`):
+  instances multiply and freeze, and the free Aiven plan has only 17 slots to share.
 - **Threads and turns** (`threads.py`, `api/threads.py`): create, list, rename, pin and delete, under
   row-level security; deleting also removes the thread's checkpoints. A turn is one streaming request
   (server-sent events with heartbeats) that runs the agent in-process, so stopping or dropping the connection
